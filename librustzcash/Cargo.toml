@@ -11,7 +11,7 @@ authors = [
 [lib]
 name = "rustzcash"
 path = "src/rustzcash.rs"
-crate-type = ["staticlib"]
+crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
 bellman = { path = "../bellman" }
