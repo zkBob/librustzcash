@@ -133,10 +133,7 @@ pub extern "system" fn librustzcash_init_zksnark_params(
     spend_hash: *const c_char,
     output_path: *const u8,
     output_path_len: usize,
-    output_hash: *const c_char,
-    sprout_path: *const u8,
-    sprout_path_len: usize,
-    sprout_hash: *const c_char,
+    output_hash: *const c_char
 ) {
     let spend_path = Path::new(OsStr::from_bytes(unsafe {
         slice::from_raw_parts(spend_path, spend_path_len)
@@ -144,17 +141,11 @@ pub extern "system" fn librustzcash_init_zksnark_params(
     let output_path = Path::new(OsStr::from_bytes(unsafe {
         slice::from_raw_parts(output_path, output_path_len)
     }));
-    let sprout_path = Path::new(OsStr::from_bytes(unsafe {
-        slice::from_raw_parts(sprout_path, sprout_path_len)
-    }));
-
     init_zksnark_params(
         spend_path,
         spend_hash,
         output_path,
-        output_hash,
-        sprout_path,
-        sprout_hash,
+        output_hash
     )
 }
 
@@ -166,25 +157,18 @@ pub extern "system" fn librustzcash_init_zksnark_params(
     spend_hash: *const c_char,
     output_path: *const u16,
     output_path_len: usize,
-    output_hash: *const c_char,
-    sprout_path: *const u16,
-    sprout_path_len: usize,
-    sprout_hash: *const c_char,
+    output_hash: *const c_char
 ) {
     let spend_path =
         OsString::from_wide(unsafe { slice::from_raw_parts(spend_path, spend_path_len) });
     let output_path =
         OsString::from_wide(unsafe { slice::from_raw_parts(output_path, output_path_len) });
-    let sprout_path =
-        OsString::from_wide(unsafe { slice::from_raw_parts(sprout_path, sprout_path_len) });
 
     init_zksnark_params(
         Path::new(&spend_path),
         spend_hash,
         Path::new(&output_path),
-        output_hash,
-        Path::new(&sprout_path),
-        sprout_hash,
+        output_hash
     )
 }
 
@@ -192,9 +176,7 @@ fn init_zksnark_params(
     spend_path: &Path,
     spend_hash: *const c_char,
     output_path: &Path,
-    output_hash: *const c_char,
-    sprout_path: &Path,
-    sprout_hash: *const c_char,
+    output_hash: *const c_char
 ) {
     // Initialize jubjub parameters here
     lazy_static::initialize(&JUBJUB);
@@ -209,21 +191,13 @@ fn init_zksnark_params(
         .expect("hash should be a valid string")
         .to_string();
 
-    let sprout_hash = unsafe { CStr::from_ptr(sprout_hash) }
-        .to_str()
-        .expect("hash should be a valid string")
-        .to_string();
-
     // Load from each of the paths
     let spend_fs = File::open(spend_path).expect("couldn't load Sapling spend parameters file");
     let output_fs = File::open(output_path).expect("couldn't load Sapling output parameters file");
-    let sprout_fs = File::open(sprout_path).expect("couldn't load Sprout groth16 parameters file");
 
     let mut spend_fs = hashreader::HashReader::new(BufReader::with_capacity(1024 * 1024, spend_fs));
     let mut output_fs =
         hashreader::HashReader::new(BufReader::with_capacity(1024 * 1024, output_fs));
-    let mut sprout_fs =
-        hashreader::HashReader::new(BufReader::with_capacity(1024 * 1024, sprout_fs));
 
     // Deserialize params
     let spend_params = Parameters::<Bls12>::read(&mut spend_fs, false)
@@ -231,11 +205,6 @@ fn init_zksnark_params(
     let output_params = Parameters::<Bls12>::read(&mut output_fs, false)
         .expect("couldn't deserialize Sapling spend parameters file");
 
-    // We only deserialize the verifying key for the Sprout parameters, which
-    // appears at the beginning of the parameter file. The rest is loaded
-    // during proving time.
-    let sprout_vk = VerifyingKey::<Bls12>::read(&mut sprout_fs)
-        .expect("couldn't deserialize Sprout Groth16 verifying key");
 
     // There is extra stuff (the transcript) at the end of the parameter file which is
     // used to verify the parameter validity, but we're not interested in that. We do
@@ -246,8 +215,6 @@ fn init_zksnark_params(
         .expect("couldn't finish reading Sapling spend parameter file");
     io::copy(&mut output_fs, &mut sink)
         .expect("couldn't finish reading Sapling output parameter file");
-    io::copy(&mut sprout_fs, &mut sink)
-        .expect("couldn't finish reading Sprout groth16 parameter file");
 
     if spend_fs.into_hash() != spend_hash {
         panic!("Sapling spend parameter file is not correct, please clean your `~/.zcash-params/` and re-run `fetch-params`.");
@@ -257,25 +224,18 @@ fn init_zksnark_params(
         panic!("Sapling output parameter file is not correct, please clean your `~/.zcash-params/` and re-run `fetch-params`.");
     }
 
-    if sprout_fs.into_hash() != sprout_hash {
-        panic!("Sprout groth16 parameter file is not correct, please clean your `~/.zcash-params/` and re-run `fetch-params`.");
-    }
-
     // Prepare verifying keys
     let spend_vk = prepare_verifying_key(&spend_params.vk);
     let output_vk = prepare_verifying_key(&output_params.vk);
-    let sprout_vk = prepare_verifying_key(&sprout_vk);
 
     // Caller is responsible for calling this function once, so
     // these global mutations are safe.
     unsafe {
         SAPLING_SPEND_PARAMS = Some(spend_params);
         SAPLING_OUTPUT_PARAMS = Some(output_params);
-        SPROUT_GROTH16_PARAMS_PATH = Some(sprout_path.to_owned());
 
         SAPLING_SPEND_VK = Some(spend_vk);
         SAPLING_OUTPUT_VK = Some(output_vk);
-        SPROUT_GROTH16_VK = Some(sprout_vk);
     }
 }
 
@@ -1377,6 +1337,7 @@ pub extern "system" fn librustzcash_sapling_spend_proof(
     rk_out: *mut [c_uchar; 32],
     zkproof: *mut [c_uchar; GROTH_PROOF_SIZE],
 ) -> bool {
+
     let mut rng = OsRng::new().expect("should be able to construct RNG");
 
     // We create the randomness of the value commitment
