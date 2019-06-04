@@ -364,7 +364,8 @@ pub extern "system" fn librustzcash_crh_ivk(
 #[no_mangle]
 pub extern "system" fn librustzcash_check_diversifier(diversifier: *const [c_uchar; 11]) -> bool {
     let diversifier = sapling_crypto::primitives::Diversifier(unsafe { *diversifier });
-    diversifier.g_d::<Bls12>(&JUBJUB).is_some()
+    let ret = diversifier.g_d::<Bls12>(&JUBJUB).is_some();
+    ret
 }
 
 #[no_mangle]
