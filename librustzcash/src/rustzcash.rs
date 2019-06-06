@@ -35,7 +35,7 @@ const SAPLING_TREE_DEPTH: usize = 32;
 
 use bellman::groth16::{
     create_random_proof, prepare_verifying_key, verify_proof, Parameters, PreparedVerifyingKey,
-    Proof, VerifyingKey,
+    Proof,
 };
 
 use blake2_rfc::blake2s::Blake2s;
