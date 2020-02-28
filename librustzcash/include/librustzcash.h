@@ -167,6 +167,18 @@ extern "C" {
         const unsigned char *sighashValue
     );
 
+    /// Finally checks the validity of the entire Sapling
+    /// transaction given valueBalance and the binding signature.
+    /// This function is only called by specific contract
+    bool librustzcash_sapling_final_check_new(
+            int64_t valueBalance,
+            const unsigned char *bindingSig,
+            const unsigned char *sighashValue,
+            const unsigned char *spendCv,
+            const unsigned char *outputCv1,
+            const unsigned char *outputCv2
+    );
+
     /// Frees a Sapling verification context returned from
     /// `librustzcash_sapling_verification_ctx_init`.
     void librustzcash_sapling_verification_ctx_free(void *);
