@@ -175,8 +175,9 @@ extern "C" {
             const unsigned char *bindingSig,
             const unsigned char *sighashValue,
             const unsigned char *spendCv,
-            const unsigned char *outputCv1,
-            const unsigned char *outputCv2
+            size_t spendCvLen,
+            const unsigned char *outputCv,
+            size_t outputCvLen
     );
 
     /// Frees a Sapling verification context returned from

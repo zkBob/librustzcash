@@ -905,26 +905,40 @@ pub extern "system" fn librustzcash_sapling_final_check_new(
     value_balance: int64_t,
     binding_sig: *const [c_uchar; 64],
     sighash_value: *const [c_uchar; 32],
-    spend_cv: *const [c_uchar; 32],
-    output_cv1: *const [c_uchar; 32],
-    output_cv2: *const [c_uchar; 32],
+    spend_cv: *const c_uchar,
+    spend_cv_len: size_t,
+    output_cv: *const c_uchar,
+    output_cv_len: size_t,
 ) -> bool {
-    // Obtain current bvk = spend_cv - output_cv1 - output_cv2
-    let spend_cv = match edwards::Point::<Bls12, Unknown>::read(&(unsafe { &*spend_cv })[..], &JUBJUB) {
+    // Obtain current bvk = spend_cv[] - output_cv[]
+    if (spend_cv_len <= 0 || spend_cv_len % 32 != 0 || output_cv_len <= 0 || output_cv_len % 32 != 0) {
+        return false;
+    }
+    let rs_spend_cv = unsafe { slice::from_raw_parts(spend_cv, spend_cv_len) };
+    let rs_output_cv = unsafe { slice::from_raw_parts(output_cv, output_cv_len) };
+    let spend_count = spend_cv_len / 32;
+    let output_count = output_cv_len / 32;
+
+    let spend_cv_point = match edwards::Point::<Bls12, Unknown>::read(&(unsafe { &*rs_spend_cv })[0..32], &JUBJUB) {
         Ok(p) => p,
         Err(_) => return false,
     };
-    let output_cv1 = match edwards::Point::<Bls12, Unknown>::read(&(unsafe { &*output_cv1 })[..], &JUBJUB) {
-        Ok(p) => p,
-        Err(_) => return false,
-    };
-    let output_cv2 = match edwards::Point::<Bls12, Unknown>::read(&(unsafe { &*output_cv2 })[..], &JUBJUB) {
-        Ok(p) => p,
-        Err(_) => return false,
-    };
-    let mut tmp = spend_cv.clone();
-    tmp = tmp.add(&output_cv1.negate(), &JUBJUB);
-    tmp = tmp.add(&output_cv2.negate(), &JUBJUB);
+    let mut tmp = spend_cv_point.clone();
+    for i in 1..spend_count {
+        let spend_cv_point = match edwards::Point::<Bls12, Unknown>::read(&(unsafe { &*rs_spend_cv })[i*32..(i+1)*32], &JUBJUB) {
+            Ok(p) => p,
+            Err(_) => return false,
+        };
+        tmp = tmp.add(&spend_cv_point,&JUBJUB);
+    }
+
+    for i in 0..output_count {
+        let output_cv_point = match edwards::Point::<Bls12, Unknown>::read(&(unsafe { &*rs_output_cv })[i*32..(i+1)*32], &JUBJUB) {
+            Ok(p) => p,
+            Err(_) => return false,
+        };
+        tmp = tmp.add(&output_cv_point.negate(), &JUBJUB);
+    }
 
     let mut bvk = redjubjub::PublicKey(tmp);
 
@@ -963,7 +977,6 @@ pub extern "system" fn librustzcash_sapling_final_check_new(
 
     true
 }
-
 
 #[no_mangle]
 pub extern "system" fn librustzcash_sprout_prove(
