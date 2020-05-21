@@ -901,6 +901,84 @@ pub extern "system" fn librustzcash_sapling_final_check(
 }
 
 #[no_mangle]
+pub extern "system" fn librustzcash_sapling_final_check_new(
+    value_balance: int64_t,
+    binding_sig: *const [c_uchar; 64],
+    sighash_value: *const [c_uchar; 32],
+    spend_cv: *const c_uchar,
+    spend_cv_len: size_t,
+    output_cv: *const c_uchar,
+    output_cv_len: size_t,
+) -> bool {
+    // Obtain current bvk = spend_cv[] - output_cv[]
+    if (spend_cv_len <= 0 || spend_cv_len % 32 != 0 || output_cv_len <= 0 || output_cv_len % 32 != 0) {
+        return false;
+    }
+    let rs_spend_cv = unsafe { slice::from_raw_parts(spend_cv, spend_cv_len) };
+    let rs_output_cv = unsafe { slice::from_raw_parts(output_cv, output_cv_len) };
+    let spend_count = spend_cv_len / 32;
+    let output_count = output_cv_len / 32;
+
+    let spend_cv_point = match edwards::Point::<Bls12, Unknown>::read(&(unsafe { &*rs_spend_cv })[0..32], &JUBJUB) {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+    let mut tmp = spend_cv_point.clone();
+    for i in 1..spend_count {
+        let spend_cv_point = match edwards::Point::<Bls12, Unknown>::read(&(unsafe { &*rs_spend_cv })[i*32..(i+1)*32], &JUBJUB) {
+            Ok(p) => p,
+            Err(_) => return false,
+        };
+        tmp = tmp.add(&spend_cv_point,&JUBJUB);
+    }
+
+    for i in 0..output_count {
+        let output_cv_point = match edwards::Point::<Bls12, Unknown>::read(&(unsafe { &*rs_output_cv })[i*32..(i+1)*32], &JUBJUB) {
+            Ok(p) => p,
+            Err(_) => return false,
+        };
+        tmp = tmp.add(&output_cv_point.negate(), &JUBJUB);
+    }
+
+    let mut bvk = redjubjub::PublicKey(tmp);
+
+    // Compute value balance
+    let mut value_balance = match compute_value_balance(value_balance) {
+        Some(a) => a,
+        None => return false,
+    };
+
+    // Subtract value_balance from current bvk to get final bvk
+    value_balance = value_balance.negate();
+    bvk.0 = bvk.0.add(&value_balance, &JUBJUB);
+
+    // Compute the signature's message for bvk/binding_sig
+    let mut data_to_be_signed = [0u8; 64];
+    bvk.0
+        .write(&mut data_to_be_signed[0..32])
+        .expect("bvk is 32 bytes");
+    (&mut data_to_be_signed[32..64]).copy_from_slice(&(unsafe { &*sighash_value })[..]);
+
+    // Deserialize the signature
+    let binding_sig = match Signature::read(&(unsafe { &*binding_sig })[..]) {
+        Ok(sig) => sig,
+        Err(_) => return false,
+    };
+
+    // Verify the binding_sig
+    if !bvk.verify(
+        &data_to_be_signed,
+        &binding_sig,
+        FixedGenerators::ValueCommitmentRandomness,
+        &JUBJUB,
+    ) {
+        return false;
+    }
+
+    true
+}
+
+#[no_mangle]
 pub extern "system" fn librustzcash_sprout_prove(
     proof_out: *mut [c_uchar; GROTH_PROOF_SIZE],
 
