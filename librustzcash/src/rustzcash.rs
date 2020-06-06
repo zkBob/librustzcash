@@ -750,6 +750,112 @@ pub extern "system" fn librustzcash_sapling_check_spend(
 }
 
 #[no_mangle]
+pub extern "system" fn librustzcash_sapling_check_spend_new(
+    cv: *const [c_uchar; 32],
+    anchor: *const [c_uchar; 32],
+    nullifier: *const [c_uchar; 32],
+    rk: *const [c_uchar; 32],
+    zkproof: *const [c_uchar; GROTH_PROOF_SIZE],
+    spend_auth_sig: *const [c_uchar; 64],
+    sighash_value: *const [c_uchar; 32],
+) -> bool {
+    // Deserialize the value commitment
+    let cv = match edwards::Point::<Bls12, Unknown>::read(&(unsafe { &*cv })[..], &JUBJUB) {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+
+    if is_small_order(&cv) {
+        return false;
+    }
+
+    // Deserialize the anchor, which should be an element
+    // of Fr.
+    let anchor = match Fr::from_repr(read_le(&(unsafe { &*anchor })[..])) {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+
+    // Grab the nullifier as a sequence of bytes
+    let nullifier = &unsafe { &*nullifier }[..];
+
+    // Compute the signature's message for rk/spend_auth_sig
+    let mut data_to_be_signed = [0u8; 64];
+    (&mut data_to_be_signed[0..32]).copy_from_slice(&(unsafe { &*rk })[..]);
+    (&mut data_to_be_signed[32..64]).copy_from_slice(&(unsafe { &*sighash_value })[..]);
+
+    // Deserialize rk
+    let rk = match redjubjub::PublicKey::<Bls12>::read(&(unsafe { &*rk })[..], &JUBJUB) {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+
+    if is_small_order(&rk.0) {
+        return false;
+    }
+
+    // Deserialize the signature
+    let spend_auth_sig = match Signature::read(&(unsafe { &*spend_auth_sig })[..]) {
+        Ok(sig) => sig,
+        Err(_) => return false,
+    };
+
+    // Verify the spend_auth_sig
+    if !rk.verify(
+        &data_to_be_signed,
+        &spend_auth_sig,
+        FixedGenerators::SpendingKeyGenerator,
+        &JUBJUB,
+    ) {
+        return false;
+    }
+
+    // Construct public input for circuit
+    let mut public_input = [Fr::zero(); 7];
+    {
+        let (x, y) = rk.0.into_xy();
+        public_input[0] = x;
+        public_input[1] = y;
+    }
+    {
+        let (x, y) = cv.into_xy();
+        public_input[2] = x;
+        public_input[3] = y;
+    }
+    public_input[4] = anchor;
+
+    // Add the nullifier through multiscalar packing
+    {
+        let nullifier = multipack::bytes_to_bits_le(nullifier);
+        let nullifier = multipack::compute_multipacking::<Bls12>(&nullifier);
+
+        assert_eq!(nullifier.len(), 2);
+
+        public_input[5] = nullifier[0];
+        public_input[6] = nullifier[1];
+    }
+
+    // Deserialize the proof
+    let zkproof = match Proof::<Bls12>::read(&(unsafe { &*zkproof })[..]) {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+
+    // Verify the proof
+    match verify_proof(
+        unsafe { SAPLING_SPEND_VK.as_ref() }.unwrap(),
+        &zkproof,
+        &public_input[..],
+    ) {
+        // No error, and proof verification successful
+        Ok(true) => true,
+
+        // Any other case
+        _ => false,
+    }
+}
+
+#[no_mangle]
 pub extern "system" fn librustzcash_sapling_check_output(
     ctx: *mut SaplingVerificationContext,
     cv: *const [c_uchar; 32],
@@ -775,6 +881,74 @@ pub extern "system" fn librustzcash_sapling_check_output(
 
         // Update the context
         unsafe { &mut *ctx }.bvk = tmp;
+    }
+
+    // Deserialize the commitment, which should be an element
+    // of Fr.
+    let cm = match Fr::from_repr(read_le(&(unsafe { &*cm })[..])) {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+
+    // Deserialize the ephemeral key
+    let epk = match edwards::Point::<Bls12, Unknown>::read(&(unsafe { &*epk })[..], &JUBJUB) {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+
+    if is_small_order(&epk) {
+        return false;
+    }
+
+    // Construct public input for circuit
+    let mut public_input = [Fr::zero(); 5];
+    {
+        let (x, y) = cv.into_xy();
+        public_input[0] = x;
+        public_input[1] = y;
+    }
+    {
+        let (x, y) = epk.into_xy();
+        public_input[2] = x;
+        public_input[3] = y;
+    }
+    public_input[4] = cm;
+
+    // Deserialize the proof
+    let zkproof = match Proof::<Bls12>::read(&(unsafe { &*zkproof })[..]) {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+
+    // Verify the proof
+    match verify_proof(
+        unsafe { SAPLING_OUTPUT_VK.as_ref() }.unwrap(),
+        &zkproof,
+        &public_input[..],
+    ) {
+        // No error, and proof verification successful
+        Ok(true) => true,
+
+        // Any other case
+        _ => false,
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn librustzcash_sapling_check_output_new(
+    cv: *const [c_uchar; 32],
+    cm: *const [c_uchar; 32],
+    epk: *const [c_uchar; 32],
+    zkproof: *const [c_uchar; GROTH_PROOF_SIZE],
+) -> bool {
+    // Deserialize the value commitment
+    let cv = match edwards::Point::<Bls12, Unknown>::read(&(unsafe { &*cv })[..], &JUBJUB) {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+
+    if is_small_order(&cv) {
+        return false;
     }
 
     // Deserialize the commitment, which should be an element
