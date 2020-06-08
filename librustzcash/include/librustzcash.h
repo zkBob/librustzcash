@@ -167,6 +167,27 @@ extern "C" {
         const unsigned char *sighashValue
     );
 
+    /// Check the validity of a Sapling Spend description
+    /// This function is only called by specific contract
+    bool librustzcash_sapling_check_spend_new(
+            const unsigned char *cv,
+            const unsigned char *anchor,
+            const unsigned char *nullifier,
+            const unsigned char *rk,
+            const unsigned char *zkproof,
+            const unsigned char *spendAuthSig,
+            const unsigned char *sighashValue
+    );
+
+    /// Check the validity of a Sapling Output description,
+    /// This function is only called by specific contract
+    bool librustzcash_sapling_check_output_new(
+            const unsigned char *cv,
+            const unsigned char *cm,
+            const unsigned char *ephemeralKey,
+            const unsigned char *zkproof
+    );
+
     /// Finally checks the validity of the entire Sapling
     /// transaction given valueBalance and the binding signature.
     /// This function is only called by specific contract
