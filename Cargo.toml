@@ -11,6 +11,6 @@ members = [
 ]
 
 [profile.release]
-lto = true
+lto = false
 panic = 'abort'
 codegen-units = 1
